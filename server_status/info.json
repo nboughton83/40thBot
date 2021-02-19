@@ -1,0 +1,10 @@
+{
+    "AUTHOR": "Spyder",
+    "INSTALL_MSG": "40thsoc Server Status Installed.",
+    "NAME": "DCS Server Status",
+    "SHORT": "Displays your DCS Server's status",
+    "DESCRIPTION": "Responds with details about your server's dcs status.",
+    "TAGS": ["utility"],
+    "REQUIREMENTS": ["arrow"],
+    "HIDDEN": false
+}
