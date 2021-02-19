@@ -73,11 +73,11 @@ class DCSServerStatus(commands.Cog):
         self.dbconfig = dbconfig
         self.killPoll = False
         self.last_key_checked = None
-        self.start_polling()
         self.presence_cycle_time_seconds = 5
         self.db = mysql.connector.connect(host=dbconfig.DB_HOST, user=dbconfig.DB_USERNAME, password=dbconfig.DB_PASSWORD, database=dbconfig.DB_DATABASE)
         self.conn = self.db.cursor()
         self.db.autocommit = True
+        self.start_polling()
 
 
     def __unload(self):
@@ -91,7 +91,7 @@ class DCSServerStatus(commands.Cog):
 
     async def get_next_key(self):
         key = None
-        servers = list(self.dbconfig.servers)
+        servers = list(await self.dbconfig.servers)
         key = self.last_key_checked
         try:
             key = servers[(servers.index(key) + 1) % len(servers)]
@@ -106,6 +106,7 @@ class DCSServerStatus(commands.Cog):
             if not key:
                 return #still runs finally
             status = await self.get_status(key)
+            #status = {"players":"test","missionName":"test","isPaused":False,"online":True}
             await self.set_presence(status, key)
         except Exception as e:
             print("Server Status poll encountered an error. skipping this poll: ", str(e))
@@ -130,8 +131,8 @@ class DCSServerStatus(commands.Cog):
         await self.bot.change_presence(status=bot_status, activity=discord.Game(name=game))
 
     async def get_status(self, key):
-        self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_theatre,pe_OnlineStatus_name,pe_OnlineStatus_pause,pe_OnlineStatus_multiplayer,pe_OnlineStatus_realtime,pe_OnlineStatus_modeltime,pe_OnlineStatus_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
-        result = list(await self.conn.fetchone())
+        await self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_theatre,pe_OnlineStatus_name,pe_OnlineStatus_pause,pe_OnlineStatus_multiplayer,pe_OnlineStatus_realtime,pe_OnlineStatus_modeltime,pe_OnlineStatus_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
+        result = await list(self.conn.fetchone())
         onlineStatusColumn = ["server_instance", "theatre", "missionName", "isPaused", "online", "realtime", "modeltime", "players", "updated"]
         status = dict(zip(onlineStatusColumn, result))
         if status["players"] >= 1:
