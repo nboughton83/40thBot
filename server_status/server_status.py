@@ -46,7 +46,6 @@ class ServerHealth:
             return 0xFF9700
         return 0xFF0000
 """
-
     def determine_uptime(self, status, uptime_data):
         now = arrow.utcnow()
         if "status" not in self.uptime_data:
@@ -141,7 +140,7 @@ class DCSserverStatus(commands.Cog):
         if status["players"] >= 1:
             status["players"] = status["players"] - 1
         status.update({"serverName": self.dbconfig.servers[status["server_instance"]]["serverFullname"]})
-        status.update({"alias": self.dbconfig.servers[status["server_instance"]]["serverAlias"]})
+        status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
         return status
 
 
