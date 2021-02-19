@@ -46,6 +46,7 @@ class ServerHealth:
             return 0xFF9700
         return 0xFF0000
 """
+
     def determine_uptime(self, status, uptime_data):
         now = arrow.utcnow()
         if "status" not in self.uptime_data:
