@@ -1,3 +1,4 @@
 /workspace.code-workspace
-stats/dbconfig.py
-stats/test.py
+dbconfig.py
+test.py
+/status/__pycache__
