@@ -1,3 +1,3 @@
 /workspace.code-workspace
-test.py
-dbconfig.py
+/server_status/test.py
+/server_status/dbconfig.py

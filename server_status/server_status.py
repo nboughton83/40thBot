@@ -65,7 +65,7 @@ class ServerHealth:
         minutes,seconds = divmod(remainder,60)
         return "{0} hours {1} minutes {2} seconds".format(
             hours, minutes, seconds
-        )
+        ) 
 """
 
 
