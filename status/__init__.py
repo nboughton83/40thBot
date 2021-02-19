@@ -1,4 +1,4 @@
-from .server_status import DCSserverStatus
+from .server_status import DCSServerStatus
 
 def setup(bot):
-    bot.add_cog(DCSserverStatus(bot))
+    bot.add_cog(DCSServerStatus(bot))

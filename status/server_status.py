@@ -5,15 +5,12 @@ from redbot.core import commands, checks
 from redbot.core.utils.chat_formatting import pagify
 import json
 import datetime
-import os
 import arrow
-from bs4 import BeautifulSoup
-
+from . import dbconfig
 
 class ErrorGettingStatus(Exception):
     def __init__(self, statusCode):
         self.status=statusCode
-
 
 class ServerHealth:
     """
@@ -69,7 +66,7 @@ class ServerHealth:
         ) 
 """
 
-class DCSserverStatus(commands.Cog):
+class DCSServerStatus(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
