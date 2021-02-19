@@ -1,13 +1,14 @@
 import asyncio
 import discord
-from redbot.core import Config, commands, checks
-from redbot.core.commands import Cog
+import mysql.connector
+from redbot.core import commands, checks
 from redbot.core.utils.chat_formatting import pagify
 import json
 import datetime
 import os
 import arrow
 from bs4 import BeautifulSoup
+
 
 class ErrorGettingStatus(Exception):
     def __init__(self, statusCode):
@@ -68,17 +69,16 @@ class ServerHealth:
         ) 
 """
 
-
 class DCSserverStatus(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.killPoll = False
-        self.last_key_checked = None7
         self.dbconfig = dbconfig
+        self.killPoll = False
+        self.last_key_checked = None
         self.start_polling()
         self.presence_cycle_time_seconds = 5
-        self.db = mysql.connector.connect(host=self.dbconfig.DB_HOST, user=self.dbconfig.DB_USERNAME, password=self.dbconfig.DB_PASSWORD, database=self.dbconfig.DB_DATABASE)
+        self.db = mysql.connector.connect(host=dbconfig.DB_HOST, user=dbconfig.DB_USERNAME, password=dbconfig.DB_PASSWORD, database=dbconfig.DB_DATABASE)
         self.conn = self.db.cursor()
         self.db.autocommit = True
 
@@ -121,7 +121,7 @@ class DCSserverStatus(commands.Cog):
 
     async def set_presence(self, status, server_key):
         server_data = await self.dbconfig.servers(server_key)
-        game = f"{status["players"]} players in {server_data["alias"]} playing {status["missionName"]}"
+        game = f"{status['players']} players in {server_data['alias']} playing {status['missionName']}"
         health = await ServerHealth(status)
         bot_status=discord.Status.online
         if health.state == "Paused":
@@ -129,7 +129,7 @@ class DCSserverStatus(commands.Cog):
             game="Paused - " + game
         elif health.state == "Offline":
             bot_status=discord.Status.dnd
-            game=f"{server_data["alias"]} server offline"
+            game=f"{server_data['alias']} server offline"
         await self.bot.change_presence(status=bot_status, activity=discord.Game(name=game))
 
     async def get_status(self, key):
@@ -142,6 +142,4 @@ class DCSserverStatus(commands.Cog):
         status.update({"serverName": self.dbconfig.servers[status["server_instance"]]["serverFullname"]})
         status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
         return status
-
-
 
