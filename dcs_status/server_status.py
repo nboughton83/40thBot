@@ -27,15 +27,11 @@ class ServerHealth:
 
     def determine_state(self, status):
         state = "Online"
-        #if "state" not in uptime_data:
-        #    uptime_data["state"] = ""
-        if status["isPaused"] and status["online"] == True:
-            state = "Paused"
-        if status["online"] == False:
+        if status["online"] == "False":
             state = "Offline"
-        #if state != uptime_data["status"]:
-        #    self.store_uptime(state, updateTime, server_key)
-        return state
+        if status["isPaused"] == "True" and status["online"] == "True":
+            state = "Paused"
+        return state   
 
     def determine_color(self, status):
         if status == "Online":
@@ -43,6 +39,8 @@ class ServerHealth:
         if status == "Unhealthy":
             return 0xFF9700
         return 0xFF0000
+
+
 """
     def determine_uptime(self, status, uptime_data):
         now = arrow.utcnow()
@@ -80,7 +78,7 @@ class DCSServerStatus(commands.Cog):
         self.start_polling()
 
 
-    def __unload(self):
+    def cog_unload(self):
         #kill the polling
         self.killPoll = True
         self.session.close()
@@ -91,7 +89,7 @@ class DCSServerStatus(commands.Cog):
 
     async def get_next_key(self):
         key = None
-        servers = list(await self.dbconfig.servers)
+        servers = list(self.dbconfig.servers)
         key = self.last_key_checked
         try:
             key = servers[(servers.index(key) + 1) % len(servers)]
@@ -106,7 +104,6 @@ class DCSServerStatus(commands.Cog):
             if not key:
                 return #still runs finally
             status = await self.get_status(key)
-            #status = {"players":"test","missionName":"test","isPaused":False,"online":True}
             await self.set_presence(status, key)
         except Exception as e:
             print("Server Status poll encountered an error. skipping this poll: ", str(e))
@@ -118,9 +115,9 @@ class DCSServerStatus(commands.Cog):
             asyncio.ensure_future(self.poll())
 
     async def set_presence(self, status, server_key):
-        server_data = await self.dbconfig.servers(server_key)
+        server_data = self.dbconfig.servers[server_key]
         game = f"{status['players']} players in {server_data['alias']} playing {status['missionName']}"
-        health = await ServerHealth(status)
+        health = ServerHealth(status)
         bot_status=discord.Status.online
         if health.state == "Paused":
             bot_status=discord.Status.idle
@@ -131,8 +128,8 @@ class DCSServerStatus(commands.Cog):
         await self.bot.change_presence(status=bot_status, activity=discord.Game(name=game))
 
     async def get_status(self, key):
-        await self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_theatre,pe_OnlineStatus_name,pe_OnlineStatus_pause,pe_OnlineStatus_multiplayer,pe_OnlineStatus_realtime,pe_OnlineStatus_modeltime,pe_OnlineStatus_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
-        result = await list(self.conn.fetchone())
+        self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_theatre,pe_OnlineStatus_name,pe_OnlineStatus_pause,pe_OnlineStatus_multiplayer,pe_OnlineStatus_realtime,pe_OnlineStatus_modeltime,pe_OnlineStatus_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
+        result = list(self.conn.fetchone())
         onlineStatusColumn = ["server_instance", "theatre", "missionName", "isPaused", "online", "realtime", "modeltime", "players", "updated"]
         status = dict(zip(onlineStatusColumn, result))
         if status["players"] >= 1:
@@ -141,3 +138,10 @@ class DCSServerStatus(commands.Cog):
         status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
         return status
 
+    def determine_health(self, status):
+        state = "Online"
+        if status["online"] == "False":
+            state = "Offline"
+        if status["isPaused"] == "True" and status["online"] == "True":
+            state = "Paused"
+        return state
