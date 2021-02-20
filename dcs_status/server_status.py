@@ -121,7 +121,7 @@ class DCSServerStatus(commands.Cog):
         bot_status=discord.Status.online
         if health.state == "Paused":
             bot_status=discord.Status.idle
-            game="Paused - " + game
+            game = f"{server_data['alias']} server paused - {status['missionName']}"
         elif health.state == "Offline":
             bot_status=discord.Status.dnd
             game=f"{server_data['alias']} server offline"
@@ -138,10 +138,19 @@ class DCSServerStatus(commands.Cog):
         status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
         return status
 
-    def determine_health(self, status):
-        state = "Online"
-        if status["online"] == "False":
-            state = "Offline"
-        if status["isPaused"] == "True" and status["online"] == "True":
-            state = "Paused"
-        return state
+
+    async def embedMessage(self, status, alias):
+        health = ServerHealth(status)
+        embed = discord.Embed(color=health.color)
+        embed.set_author(name=status["serverName"], icon_url="https://40thsoc.org/img/logo.png")
+        embed.set_thumbnail(url="https://40thsoc.org/img/logo.png")
+        embed.add_field(name="Status", value=health.state, inline=True)
+        embed.add_field(name="Mission", value=status["missionName"], inline=True)
+        embed.add_field(name="Map", value=status["theatre"], inline=True)
+        embed.add_field(name="Players", value="{}/{}".format(status["players"], status["maxPlayers"]), inline=True)
+        embed.add_field(name="METAR", value=self.get_metar(status))
+        if health.status == "Online":
+            embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
+        else:
+            embed.add_field(name="{} Since".format(health.status), value=health.uptime, inline=True)
+        return embed
