@@ -2,3 +2,5 @@
 dbconfig.py
 test.py
 /dcs_status/__pycache__
+service_account.json
+__pycache__/dbconfig.cpython-38.pyc
