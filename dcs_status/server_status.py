@@ -5,7 +5,9 @@ from redbot.core import commands, checks
 from redbot.core.utils.chat_formatting import pagify
 import json
 import datetime
-from . import dbconfig
+import importlib.machinery
+loader = importlib.machinery.SourceFileLoader('dbconfig', 'C:/Users/dcsded/Scripts/RedBot/mycogs/40thBot/dbconfig.py')
+dbconfig = loader.load_module('dbconfig')
 
 class ErrorGettingStatus(Exception):
     def __init__(self, statusCode):
@@ -25,6 +27,9 @@ class ServerHealth:
 
     def determine_state(self, status):
         state = "Online"
+        if abs(datetime.datetime.now() - status["updated"]) > datetime.timedelta(minutes=5):
+            state = "Offline"  
+            return state    
         if status["online"] == "False":
             state = "Offline"
         if status["isPaused"] == "True" and status["online"] == "True":
@@ -117,10 +122,10 @@ class DCSServerStatus(commands.Cog):
     
     async def get_players(self, key):
         # Get all pilot name unique ID pairs except default DCS pilot
-        self.conn.execute("SELECT pe_DataPlayers_ucid, pe_DataPlayers_lastname FROM pe_dataplayers WHERE pe_DataPlayers_ucid != '40b7ff04fd4ddce40d53302d8db853c3'")
+        self.conn.execute("SELECT pe_DataPlayers_ucid, pe_DataPlayers_lastname FROM pe_dataplayers WHERE pe_DataPlayers_ucid <> '40b7ff04fd4ddce40d53302d8db853c3'")
         pilotUID = dict(self.conn.fetchall())
         # Get pilot UIDs connected to each server instance and team except default DCS pilot
-        self.conn.execute("SELECT pe_OnlinePlayers_side, pe_OnlinePlayers_ucid FROM pe_onlineplayers WHERE pe_OnlinePlayers_ucid != '40b7ff04fd4ddce40d53302d8db853c3' AND pe_OnlinePlayers_instance = %s", (key,))
+        self.conn.execute("SELECT pe_OnlinePlayers_side, pe_OnlinePlayers_ucid FROM pe_onlineplayers WHERE pe_OnlinePlayers_ucid <> '40b7ff04fd4ddce40d53302d8db853c3' AND pe_OnlinePlayers_instance = %s", (key,))
         pilotList = self.conn.fetchall()
         # Create dictionary to match returned coalition values
         number_to_side = {0:'Spectator', 1:'Red', 2:'Blue'}
@@ -156,27 +161,32 @@ class DCSServerStatus(commands.Cog):
                 if len(playerList[num]) > 0 and coalition == 0:
                     message = ''
                     for pilot in playerList[num]:
-                        message += pilot + "\n"
-                    embed.add_field(name="Spectators", value=message, inline=True)   
+                        message += f"```{pilot}```\n"
+                    embed.add_field(name="Spectators", value=message, inline=False)   
                 if len(playerList[num]) > 0 and coalition == 1:
                     message = ''
                     for pilot in playerList[num]:
-                        message += pilot + "\n"
-                    embed.add_field(name="Opfor", value=message, inline=True)
+                        message += f"```css\n{pilot}\n```"
+                    embed.add_field(name="Redfor", value=message, inline=True)
                 if len(playerList[num]) > 0 and coalition == 2:
                     message = ''
                     for pilot in playerList[num]:
-                        message += pilot + "\n"
+                        message += f"```ini\n{pilot}\n```"
                     embed.add_field(name="Blufor", value=message, inline=True)
+        elif health.state == "Paused":
+            embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
+            embed.add_field(name="Updated", value=status["updated"], inline=True)
         else:
             embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
             embed.add_field(name=f"{health.state} since", value=status["updated"], inline=True)
+
+            
         return embed
 
 
     @commands.command(name="serverlist")
     async def _servers(self, context):
-        # Displays the list of tracked servers
+        """Displays the list of tracked servers"""
         servers = self.dbconfig.servers
         if not servers:
             await context.send("No servers currently being tracked")
@@ -186,13 +196,13 @@ class DCSServerStatus(commands.Cog):
             instance = servers[key]["instance"]
             alias = servers[key]["alias"]
             message += (f"{instance} - {alias}\n")
-        message += "\n Type \'?server <instance #>\' to get the status. Or \'?server all\' for status on all instances"
+        message += "```fix\n Type \'?server <instance #>\' to get the status. Or \'?server all\' for status on all instances\n```"
         await context.send(message)
 
 
     @commands.command(name = "server")
     async def server_status(self, context, key):
-        # Gets the server status for the provided instance. Use !serverlist to see all the servers we're tracking
+        """Gets server status. Use ?serverlist to see tracked servers"""
         blocked = "Unable to message you the details of the server you requested. Either you blocked me or you disabled DMs from this server."
         async def respond_in_pm(text: str = None, embed = None) -> bool:
             if text is None and embed is None:
@@ -210,11 +220,17 @@ class DCSServerStatus(commands.Cog):
             if not await respond_in_pm("Please only use `?server` in PMs with me."):
                 # abort early, since the rest won't go through either
                 return
-        # Check if instance # is tracked server
-        #if key not in self.dbconfig.servers.keys() or key == 'all':
-        #    await respond_in_pm(f"{key} is not a tracked server instance")
-        #    return
 
+        # Check if instance is tracked server or all keyword           
+        if key != 'all':
+            try:
+                if int(key) not in self.dbconfig.servers: 
+                    await respond_in_pm(f"{key} is not a tracked server instance")
+                    return
+            except ValueError:
+                    await respond_in_pm(f"{key} is not a tracked server instance")
+                    return
+        
         try:
             # Send all server statuses if all keyword
             if key == 'all':
