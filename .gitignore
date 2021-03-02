@@ -4,3 +4,5 @@ test.py
 /dcs_status/__pycache__
 service_account.json
 dcs_tracking/__pycache__
+__pycache__/dbconfig.cpython-38.pyc
+.vscode/settings.json

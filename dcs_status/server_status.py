@@ -107,7 +107,7 @@ class DCSServerStatus(commands.Cog):
 
     async def get_status(self, key):
         # Get online status for selected instance (key)
-        self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_theatre,pe_OnlineStatus_name,pe_OnlineStatus_pause,pe_OnlineStatus_multiplayer,pe_OnlineStatus_realtime,pe_OnlineStatus_modeltime,pe_OnlineStatus_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
+        self.conn.execute("SELECT pe_OnlineStatus_instance,pe_OnlineStatus_mission_theatre,pe_OnlineStatus_mission_name,pe_OnlineStatus_server_pause,pe_OnlineStatus_mission_multiplayer,pe_OnlineStatus_server_realtime,pe_OnlineStatus_mission_modeltime,pe_OnlineStatus_server_players,pe_OnlineStatus_updated FROM pe_onlinestatus WHERE pe_OnlineStatus_instance = %s", (key,))
         result = list(self.conn.fetchone())
         #Add keys for returned results 
         onlineStatusColumn = ["server_instance", "theatre", "missionName", "isPaused", "online", "realtime", "modeltime", "players", "updated"]
@@ -196,7 +196,7 @@ class DCSServerStatus(commands.Cog):
             instance = servers[key]["instance"]
             alias = servers[key]["alias"]
             message += (f"{instance} - {alias}\n")
-        message += "```fix\n Type \'?server <instance #>\' to get the status. Or \'?server all\' for status on all instances\n```"
+        message += "```fix\n Use \'?server <instance #>\' to get the status. Or \'?server all\' for status on all instances\n```"
         await context.send(message)
 
 
