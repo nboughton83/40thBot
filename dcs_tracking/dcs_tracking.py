@@ -58,12 +58,12 @@ class DCSTrackingTools(commands.Cog):
         self.conn.execute("SELECT pe_DataMissionHashes_hash from pe_datamissionhashes WHERE pe_DataMissionHashes_id = %s", (mission_id,)) 
         mission = self.conn.fetchone()[0]
         # fetch players who attended mission by mission ID
-        self.conn.execute("SELECT pe_LogStats_playerid,pe_LogStats_typeid FROM pe_logstats WHERE pe_LogStats_masterslot <> -1 AND pe_LogStats_missionhash_id = %s", (mission_id,)) 
+        self.conn.execute("SELECT pe_LogStats_playerid,pe_LogStats_typeid FROM pe_logstats WHERE pe_LogStats_masterslot <> -1 AND pe_LogStats_missionhash_id = %s ORDER BY ps_time", (mission_id,)) 
         participant_list = dict(self.conn.fetchall())
         
         # correct names to match attendance google sheet
         attendance_dictionary = {}
-        corrected_names = {'A-10C_2': 'A-10C', 'AV8BNA': 'AV-8B', 'F-14B': 'F-14B Pilot', 'F-14B_2': 'F-14B RIO', 'F-16C_50': 'F-16C', 'FA-18C_hornet': 'F/A-18C', 'Ka-50': 'KA-50', 'M-2000C': 'M2000C', 'UH-1H_2': 'UH-1H', 'UH-1H_3': 'UH-1H', 'UH-1H_4': 'UH-1H'}
+        corrected_names = {'A-10C_2': 'A-10C', 'AV8BNA': 'AV-8B', 'F-14A-135-GR': 'F-14A', 'F-14B': 'F-14B Pilot', 'F-14B_2': 'F-14B RIO', 'F-16C_50': 'F-16C', 'FA-18C_hornet': 'F/A-18C', 'Ka-50': 'KA-50', 'M-2000C': 'M2000C', 'UH-1H_2': 'UH-1H', 'UH-1H_3': 'UH-1H', 'UH-1H_4': 'UH-1H'}
         corrected_airframe = {k: corrected_names.get(v, v) for k, v in airframe_dictionary.items()}
 
         # Remove instance number and Perun version from mission name string
