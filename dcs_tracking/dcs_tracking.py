@@ -4,7 +4,6 @@ import mysql.connector
 from redbot.core import commands, checks
 from redbot.core.data_manager import bundled_data_path
 from redbot.core.utils.chat_formatting import pagify
-import json
 import datetime
 import re
 import pygsheets
@@ -30,7 +29,7 @@ class DCSTrackingTools(commands.Cog):
     def get_missions(self):
         # Get list of recent mission ID and names with 15 players or greater
         # Minimum 15 players because each player has at least 2 entries in logstats, observer "-1" and airframe "id" hence (HAVING COUNT (*) > 30)
-        self.conn.execute("SELECT pe_LogStats_missionhash_id FROM pe_logstats GROUP BY pe_LogStats_missionhash_id HAVING COUNT(*) > 30 ORDER BY pe_LogStats_missionhash_id DESC LIMIT 5")
+        self.conn.execute("SELECT pe_LogStats_missionhash_id FROM pe_logstats GROUP BY pe_LogStats_missionhash_id HAVING COUNT(*) > 30 ORDER BY pe_LogStats_missionhash_id DESC LIMIT 15")
         recent_missions = self.conn.fetchall()
         # Prepare empty list for append
         final_list = []
@@ -58,9 +57,9 @@ class DCSTrackingTools(commands.Cog):
         self.conn.execute("SELECT pe_DataMissionHashes_hash from pe_datamissionhashes WHERE pe_DataMissionHashes_id = %s", (mission_id,)) 
         mission = self.conn.fetchone()[0]
         # fetch players who attended mission by mission ID
-        self.conn.execute("SELECT pe_LogStats_playerid,pe_LogStats_typeid FROM pe_logstats WHERE pe_LogStats_masterslot <> -1 AND pe_LogStats_missionhash_id = %s ORDER BY ps_time", (mission_id,)) 
-        participant_list = dict(self.conn.fetchall())
-        
+        self.conn.execute("SELECT pe_LogStats_playerid,pe_LogStats_typeid,pe_LogStats_masterslot,pe_LogStats_seat FROM pe_logstats WHERE pe_LogStats_masterslot <> -1 AND pe_LogStats_missionhash_id = %s ORDER BY ps_time", (mission_id,)) 
+        participant_list = self.conn.fetchall()
+
         # correct names to match attendance google sheet
         attendance_dictionary = {}
         corrected_names = {'A-10C_2': 'A-10C', 'AV8BNA': 'AV-8B', 'F-14A-135-GR': 'F-14A', 'F-14B': 'F-14B Pilot', 'F-14B_2': 'F-14B RIO', 'F-16C_50': 'F-16C', 'FA-18C_hornet': 'F/A-18C', 'Ka-50': 'KA-50', 'M-2000C': 'M2000C', 'UH-1H_2': 'UH-1H', 'UH-1H_3': 'UH-1H', 'UH-1H_4': 'UH-1H'}
@@ -80,21 +79,48 @@ class DCSTrackingTools(commands.Cog):
             player_dictionary[playerID] = taglessName[0]
 
         # compile final dictionary by taking pilot ID and airframe ID and replacing with real names
-        playerDict = {player_dictionary.get(k, k):v for k, v in participant_list.items()}
+        pilot_airframe_dictionary = {x[0] : x[1] for x in participant_list}
+        playerDict = {player_dictionary.get(k, k):v for k, v in pilot_airframe_dictionary.items()}
         pilot_dict = {k: corrected_airframe.get(v, v) for k, v in playerDict.items()}
+
+        # Create dictionary to define RIO-Multicrew based on seat
+        pilot_seat_dictionary = {x[0] : x[3] for x in participant_list}
+        pilot_seat_dictionary = dict(filter(lambda x: x[1] >= 2, pilot_seat_dictionary.items()))
+        seat_names = {2:'RIO/WSO/Co-pilot',3:'RIO/WSO/Co-pilot',4:'RIO/WSO/Co-pilot'}
+        corrected_pilot_seat = {k: seat_names.get(v, v) for k, v in pilot_seat_dictionary.items()}
+
+        # Create dictionary to define player roles based on slot
+        player_roles = {x[0] : '' for x in participant_list}
+        aircraft_to_slot_dictionary = {airframe_num : [] for airframe_num in airframe_dictionary}
+        # For each participant, add their slot ID to the dictionary for slot numbers for an aircraft type
+        for player_id, aircraft_id, slot_id, _ in participant_list:
+            aircraft_to_slot_dictionary[aircraft_id].append((slot_id, player_id))
+        # Based on that dictionary, for each aircraft, sort the players in order of increasing slot number
+        for airframe_num in aircraft_to_slot_dictionary:
+            if len(aircraft_to_slot_dictionary[airframe_num]) > 0:
+                aircraft_to_slot_dictionary[airframe_num].sort(key=lambda x : x[0])
+                # The player with the lowest slot number for an airframe is the leader
+                player_roles[aircraft_to_slot_dictionary[airframe_num][0][1]] = 'FL'
+                # Every other player for that airframe is a wingman
+                for slot_id, player_idx in aircraft_to_slot_dictionary[airframe_num][1:]:
+                    player_roles[player_idx] = 'WM'
+
+        # Add RIO-Multicrew roles
+        player_roles.update(corrected_pilot_seat)
 
         # create correct keys for pandas dataframe columns
         attendance_dictionary["Date"] = mission_date
         attendance_dictionary["Mission Name"] = mission_name
         attendance_dictionary["Participant"] = list(pilot_dict.keys())
         attendance_dictionary["Airframe"] = list(pilot_dict.values())
+        attendance_dictionary["Role"] = list(player_roles.values())
 
         return attendance_dictionary
 
 
     async def upload_attendance(self, attendance_list):
         # build dataframe to upload to google sheet from attendance list
-        df = self.pd.DataFrame(attendance_list, columns = ['Date', 'Mission Name', 'Participant', 'Airframe'])
+        df = self.pd.DataFrame(attendance_list, columns = ['Date', 'Mission Name', 'Participant', 'Airframe', 'Role'])
 
         # setup authorization for google 
         gc = pygsheets.authorize(service_account_file=bundled_data_path(self) / "service_account.json")
@@ -122,6 +148,9 @@ class DCSTrackingTools(commands.Cog):
             model_cell = pygsheets.Cell("A2")
             model_cell.color = white
             DataRange(f'A{last_row + 1}',f'E{data_rows}', worksheet=wks).apply_format(model_cell, fields = "userEnteredFormat.backgroundColor")  
+
+        status = {'worksheet': sh.title, 'tab': wks.title}
+        return status
 
 
     async def embedMessage(self, attendance_list):
@@ -152,7 +181,7 @@ class DCSTrackingTools(commands.Cog):
 
     @commands.command(name = "attendance")
     async def __attendance(self, context, mission_id):
-        """Get attendance for mission and post-upload"""
+        """Get attendance for mission and post message"""
         blocked = "Unable to message attendance list. Either you blocked me or you disabled DMs from this server."
         async def respond_in_pm(text: str = None, embed = None) -> bool:    
             if text is None and embed is None:
@@ -178,10 +207,47 @@ class DCSTrackingTools(commands.Cog):
             message = await self.embedMessage(attendance_list)
             try:
                 await context.send(embed=message)
-                await self.upload_attendance(attendance_list)
             except discord.errors.HTTPException:
                 print("Attendance failed to send message:", message)
                 raise
         except ErrorGettingStatus as e:
             await respond_in_pm("Error getting attendance right now.")
             print("Error getting attendance. Response code was " + str(e))
+
+    @commands.command(name = "upload")
+    @commands.has_any_role('40th SOC Command Staff', '40th SOC Senior Command', 'admin')
+    async def __upload(self, context, mission_id):
+        """Upload attendance for mission to google sheet"""
+        blocked = "Unable to message attendance list. Either you blocked me or you disabled DMs from this server."
+        async def respond_in_pm(text: str = None, embed = None) -> bool:    
+            if text is None and embed is None:
+                raise ValueError("nothing to respond with")
+            try:
+                await context.message.author.send(text, embed=embed)
+            except discord.http.Forbidden:
+                # don't attempt to PM immediately after PMing fails due to being blocked
+                if context.guild:
+                    await context.send(blocked)
+                    return False
+            return True
+
+        # check if mission ID is valid
+        mission_list = self.get_missions()
+        inlist = [item for item in mission_list if item[0] == int(mission_id)]
+        if not inlist:
+            await respond_in_pm(f"{mission_id} is not a valid ID")
+            return
+
+        try:
+            attendance_list = self.get_attendance_list(mission_id)
+            status = await self.upload_attendance(attendance_list)
+            try:
+                embed = discord.Embed(color=0x05e400)
+                embed.add_field(name="Status:", value=f"Uploaded \"{attendance_list['Mission Name']}\" \nto \"{status['worksheet']}\" \non tab \"{status['tab']}\"", inline=True)
+                await context.send(embed=embed)
+            except discord.errors.HTTPException:
+                print("Attendance failed to upload:", embed)
+                raise
+        except ErrorGettingStatus as e:
+            await respond_in_pm("Error getting attendance right now.")
+            print("Error uploading attendance. Response code was " + str(e))

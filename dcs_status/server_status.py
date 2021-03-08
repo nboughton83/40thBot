@@ -27,15 +27,19 @@ class ServerHealth:
 
     def determine_state(self, status):
         state = "Online"
+        # Check if entry stops updating
         if abs(datetime.datetime.now() - status["updated"]) > datetime.timedelta(minutes=5):
             state = "Offline"  
-            return state    
+            return state   
+        # Check if server manually stopeed 
         if status["online"] == "False":
             state = "Offline"
+        # Server online but paused waiting for clients to connect
         if status["isPaused"] == "True" and status["online"] == "True":
             state = "Paused"
         return state   
 
+    # Set discord embed based on color
     def determine_color(self, status):
         if status == "Online":
             return 0x05e400
@@ -44,7 +48,6 @@ class ServerHealth:
         return 0xFF0000
 
 class DCSServerStatus(commands.Cog):
-
     def __init__(self, bot):
         self.bot = bot
         self.dbconfig = dbconfig
@@ -62,10 +65,12 @@ class DCSServerStatus(commands.Cog):
         self.session.close()
 
     def start_polling(self):
+        # Start polling to update bot presence status
         asyncio.ensure_future(self.poll())
         print("Server Status polling started")
 
     async def get_next_key(self):
+        # Get next server instance configured in dbconfig
         key = None
         servers = list(self.dbconfig.servers)
         key = self.last_key_checked
@@ -77,6 +82,7 @@ class DCSServerStatus(commands.Cog):
         return key
 
     async def poll(self):
+        # Set bot presence to status of each server instance 
         try:
             key = await self.get_next_key()
             if not key:
@@ -115,9 +121,6 @@ class DCSServerStatus(commands.Cog):
         # DCS has default pilot connected. Remove from player count to get accurate number
         if status["players"] >= 1:
             status["players"] = status["players"] - 1
-        # Add server name and alias to status just in case
-        status.update({"serverName": self.dbconfig.servers[status["server_instance"]]["serverFullname"]})
-        status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
         return status
     
     async def get_players(self, key):
@@ -135,23 +138,56 @@ class DCSServerStatus(commands.Cog):
         for coalition, uid in pilotList:
             human_name = pilotUID[uid]
             coalition_player_name_list[coalition].append(human_name)
-        return coalition_player_name_list
+        return coalition_player_name_list     
 
     def get_mission_time(self, status):
         # Translate epoch time to human readable. Time the mission has been active. != server uptime
         time_seconds = datetime.timedelta(seconds=float(status["modeltime"]))
         return str(time_seconds).split(".")[0]
 
+    def get_srs_info(self, key):
+        self.conn.execute("SELECT pe_dataraw_payload FROM pe_dataraw WHERE pe_dataraw_type = 100 AND pe_dataraw_instance = %s", (key,))
+        srs_info = json.loads(self.conn.fetchall()[0][0])
+        return srs_info['ServerVersion']
+
+    def get_lotatc_info(self, key):
+        self.conn.execute("SELECT pe_dataraw_payload FROM pe_dataraw WHERE pe_dataraw_type = 101 AND pe_dataraw_instance = %s", (key,))
+        lotatc_info = json.loads(self.conn.fetchall()[0][0])    
+        return lotatc_info
+
+    def get_required_mods(self, key):
+        self.conn.execute("SELECT pe_dataraw_payload FROM pe_dataraw WHERE pe_dataraw_type = 3 AND pe_dataraw_instance = %s", (key,))
+        mod_list = json.loads(self.conn.fetchall()[0][0])
+        return list(mod_list['mission']['requiredModules'].values())
+
+    async def assemble_status(self, key):
+        status = await self.get_status(key)
+        # Strip extra field from version #
+        lotatcVer = self.get_lotatc_info(key)['version'].split('-')[0]
+
+        # Update status dictionary
+        status.update({"serverName": self.dbconfig.servers[status["server_instance"]]["serverFullname"]})
+        status.update({"alias": self.dbconfig.servers[status["server_instance"]]["alias"]})
+        status.update({"srsVersion": self.get_srs_info(key)})
+        status.update({"lotatcVersion": lotatcVer})
+        status.update({"reqMods": self.get_required_mods(key)})
+        status.update({"lotatcClients": self.get_lotatc_info(key)['clients']})
+        return status
 
     async def embedMessage(self, status, playerList):
         # Instantiate health to determine state (online, paused, or offline) and set color (green, yellow, red)
         health = ServerHealth(status)
         embed = discord.Embed(color=health.color)
         embed.set_author(name=status["serverName"], icon_url="https://40thsoc.org/img/logo.png")
-        # embed.set_thumbnail(url="https://40thsoc.org/img/logo.png")
         embed.add_field(name="Status", value=health.state, inline=True)
         embed.add_field(name="Map", value=status["theatre"], inline=True)
         embed.add_field(name="Mission", value=status["missionName"], inline=True)
+        embed.add_field(name="SRS Version", value=status["srsVersion"], inline=True)
+        embed.add_field(name="LotAtc Version", value=status["lotatcVersion"], inline=True)
+        if not status["reqMods"]:
+            embed.add_field(name="Required Mods", value="None", inline=True)
+        else:
+            embed.add_field(name="Required Mods", value=status["reqMods"], inline=True)
         embed.add_field(name="Players", value=f'{status["players"]}/48', inline=True)
         if health.state == "Online":
             embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
@@ -161,7 +197,7 @@ class DCSServerStatus(commands.Cog):
                 if len(playerList[num]) > 0 and coalition == 0:
                     message = ''
                     for pilot in playerList[num]:
-                        message += f"```{pilot}```\n"
+                        message += f"```{pilot}```"
                     embed.add_field(name="Spectators", value=message, inline=False)   
                 if len(playerList[num]) > 0 and coalition == 1:
                     message = ''
@@ -173,6 +209,24 @@ class DCSServerStatus(commands.Cog):
                     for pilot in playerList[num]:
                         message += f"```ini\n{pilot}\n```"
                     embed.add_field(name="Blufor", value=message, inline=True)
+            
+            if len(status["lotatcClients"]["blue"]) > 0:
+                message = ''
+                for client in status["lotatcClients"]["blue"]:
+                    if not client["airport"]:
+                        message += f"```{client['name']}\n```"
+                    else:
+                        message += f"```{client['name']}, {client['airport'][0]['name']} runway {client['airport'][0]['runway']}\n```"
+                embed.add_field(name="Blue GCI", value=message, inline=False)
+            if len(status["lotatcClients"]["red"]) > 0:
+                message = ''
+                for client in status["lotatcClients"]["red"]:
+                    if not client["airport"]:
+                        message += f"```{client['name']}\n```"
+                    else:
+                        message += f"```{client['name']}, {client['airport'][0]['name']} runway {client['airport'][0]['runway']}\n```"
+                embed.add_field(name="Red GCI", value=message, inline=False)
+
         elif health.state == "Paused":
             embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
             embed.add_field(name="Updated", value=status["updated"], inline=True)
@@ -180,7 +234,6 @@ class DCSServerStatus(commands.Cog):
             embed.add_field(name="Mission Time", value=self.get_mission_time(status), inline=True)
             embed.add_field(name=f"{health.state} since", value=status["updated"], inline=True)
 
-            
         return embed
 
 
@@ -236,7 +289,7 @@ class DCSServerStatus(commands.Cog):
             if key == 'all':
                 servers = self.dbconfig.servers
                 for key in servers:
-                    status = await self.get_status(key)
+                    status = await self.assemble_status(key)
                     playerList = await self.get_players(key)
                     message = await self.embedMessage(status, playerList) 
                     try:
@@ -245,7 +298,7 @@ class DCSServerStatus(commands.Cog):
                         print("Server status failed to send message:", message, "from", status)
                         raise
             else:
-                status = await self.get_status(key)
+                status = await self.assemble_status(key)
                 playerList = await self.get_players(key)
                 message = await self.embedMessage(status, playerList)
                 try:
